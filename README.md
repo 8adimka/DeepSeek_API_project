@@ -16,8 +16,8 @@ A lightweight helper daemon designed to assist with solving live-coding problems
 ### ✨ Features
 
 - Automatically queries DeepSeek API to generate Python code for the copied task.
-- Simulates human typing with realistic speed and indentation behavior.
-- Allows pausing/resuming typing via hotkeys (F8 / F9).
+- Simulates human typing with realistic speed and behavior.
+- Allows pausing/resuming typing via hotkeys (F9).
 
 ### 🔧 Requirements
 
@@ -68,8 +68,8 @@ sudo pacman -S xclip
 ### ✨ Функции
 
 - Автоматически извлекает решение кода для поставленной задачи через DeepSeek API.
-- Имитирует человеческую печать с реалистичным таймингом и отступами.
-- Позволяет приостанавливать/возобновлять печать в середине процесса простыми горячими клавишами (F8 / F9).
+- Имитирует человеческую печать с реалистичным таймингом.
+- Позволяет приостанавливать/возобновлять печать в середине процесса простыми горячими клавишами (F9).
 
 ### 🔧 Требования
 
