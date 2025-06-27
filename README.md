@@ -37,6 +37,9 @@ pip install -r requirements.txt
 - Create file .env
 ```ini
 DEEPSEEK_API_KEY='your_deepseek_api_key_here'
+
+TELEGRAM_BOT_TOKEN="Bot_token from BotFather"
+TELEGRAM_CHAT_ID="your chat_ID to connect your telegram to your Bot"
 ```
 - Install to work with clipboard:
 ```bash
@@ -45,9 +48,33 @@ sudo pacman -S xclip
 
 ### 🚀 How to Use
 
-1. Copy the task description to your clipboard (Ctrl+C).
-2. Press F8 to begin human-like typing of the generated solution.
-3. Press F9 to pause/resume typing as needed.
+- (Recommended) Activate your virtual environment with all required dependencies installed:
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+- And then run app:
+```bash
+python wp-6
+```
+
+- Once activated, the program runs as a daemon (in the background):
+
+  1. Copy the task description to your clipboard (Ctrl+C).
+
+  2. Press F8 to activate input mode.
+
+  3. If needed, press F9 to pause and resume the process.
+
+- I’ve expanded the “toolkit” a bit and added:
+
+  1. SQL_wp_6.py – for solving SQL-related tasks.
+
+  2. cc_1.py – Cash-Cacher: sends the selected text on your screen directly to your Telegram by pressing F8.
+
+  3. wp_7.py – In addition to the main functionality, it includes a built-in Cash-Cacher: sends the selected text on your screen to your Telegram bot by pressing INSERT.
 
 ################################################################################
 # 🇷🇺 Русская версия
@@ -89,6 +116,9 @@ pip install -r requirements.txt
 - Создай файл .env
 ```ini
 DEEPSEEK_API_KEY='your_deepseek_api_key_here'
+
+TELEGRAM_BOT_TOKEN="Bot_token from BotFather"
+TELEGRAM_CHAT_ID="your chat_ID to connect your telegram_account to your Bot"
 ```
 - Установи для работы c clipboard
 ```bash
@@ -98,9 +128,19 @@ sudo pacman -S xclip
 
 ### 🚀 Как использовать
 
-1. Скопируйте условие задачи в буфер обмена (Ctrl+C).
-2. Нажмите F8, чтобы активировать ввод.
-3. При необходимости нажмите F9, чтобы поставить на паузу и снова продолжить.
+- Активируй виртуальное окружение (желательно) со всеми установленными зависимостями и запусти:
+```bash
+python wp-6
+```
+- Когда активирован работает в режиме демона (в фоне):
+  1. Скопируйте условие задачи в буфер обмена (Ctrl+C).
+  2. Нажмите F8, чтобы активировать ввод.
+  3. При необходимости нажмите F9, чтобы поставить на паузу и снова продолжить.
+
+- Я немного расширил "зоопарк" и добавил:
+  1. SQL_wp_6.py - для решения задач по SQL
+  2. cc_1.py - сash-cacher отправляет выделенный текст на экране сразу тебе в телеграм по нажатию F8
+  3. wp_7.py - + к основному функционалу -> встроенный cash_cacher - отправляет выделенный на экране текст тебе в телеграм-бота по нажатию INSERT
 
 
 

@@ -17,16 +17,13 @@ typing_paused = False
 typing_active = False
 
 
-def signal_handler(sig, frame):
-    sys.exit(0)
-
-
 class ClipboardSender:
     def __init__(self):
         load_dotenv()
         self.TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
         self.TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
         self.last_clipboard_content = ""
+        self.keyboard = Controller()  # Добавлено для эмуляции Ctrl+C
 
     def send_to_telegram(self, message: str) -> None:
         try:
@@ -41,11 +38,29 @@ class ClipboardSender:
         except Exception:
             pass
 
+    def copy_selected_text(self) -> bool:
+        """Копирует выделенный текст через эмуляцию Ctrl+C."""
+        try:
+            old_text = pyperclip.paste()
+
+            # Эмулируем Ctrl+C
+            with self.keyboard.pressed(Key.ctrl):
+                self.keyboard.press("c")
+                self.keyboard.release("c")
+
+            time.sleep(0.3)
+            new_text = pyperclip.paste()
+
+            if new_text and new_text != old_text:
+                self.last_clipboard_content = new_text
+                return True
+            return False
+        except Exception:
+            return False
+
     def process_clipboard(self) -> None:
-        current_content = pyperclip.paste()
-        if current_content and current_content != self.last_clipboard_content:
-            self.last_clipboard_content = current_content
-            self.send_to_telegram(current_content)
+        if self.copy_selected_text() and self.last_clipboard_content:
+            self.send_to_telegram(self.last_clipboard_content)
 
 
 def signal_handler(sig, frame):
@@ -301,7 +316,7 @@ def run_daemon():
                 solver.process_task()
             elif key == Key.f9:
                 toggle_typing_pause()
-            elif key == Key.f10:
+            elif key == Key.insert:
                 sender.process_clipboard()
         except AttributeError:
             pass
