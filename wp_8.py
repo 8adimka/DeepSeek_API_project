@@ -502,13 +502,14 @@ class DeepSeekSolver:
         if not question or len(question.strip()) < 3:
             return
 
-        prompt = f"""Подготовь краткий тезисный ответ на вопрос: {question}
+        prompt = f"""Подготовь краткий тезисный ответ на вопрос в контексте программирования на Python: {question}
 
 Ответь по порядку, только ключевые пункты, без введения, заключения и лишних слов. Если потребуется писать код, то пиши его на Python."""
 
         answer = self.send_to_api(prompt, timeout=30)
 
         if answer and self.telegram_sender:
+            self.telegram_sender.send_to_telegram("_______\n_______")
             self.telegram_sender.send_to_telegram(answer)
 
 
