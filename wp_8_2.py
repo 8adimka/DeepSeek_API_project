@@ -1,5 +1,4 @@
 import json
-import logging
 import os
 import random
 import signal
@@ -18,12 +17,6 @@ from pynput.keyboard import Controller, Key, Listener
 from websocket import ABNF
 from Xlib import X, display
 
-logging.basicConfig(
-    filename="daemon.log",
-    level=logging.DEBUG,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
-
 typing_paused = False
 typing_active = False
 telegram_sender = None
@@ -31,7 +24,6 @@ telegram_sender = None
 
 class ClipboardSender:
     def __init__(self):
-        logging.debug("Initializing ClipboardSender.")
         load_dotenv()
         self.TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
         self.TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -47,7 +39,6 @@ class ClipboardSender:
         self._debounce_seconds = 2.0
 
     def send_to_telegram(self, message: str) -> bool:
-        logging.debug(f"Attempting to send to Telegram: {message[:50]}...")
         try:
             message = self.clean_telegram_message(message)
             h = hash(message)
@@ -56,7 +47,6 @@ class ClipboardSender:
                 h == self._last_sent_hash
                 and (now - self._last_sent_time) < self._debounce_seconds
             ):
-                logging.debug("Message debounced.")
                 return False
 
             if len(message) > 4000:
@@ -68,22 +58,18 @@ class ClipboardSender:
                 if ok:
                     self._last_sent_hash = h
                     self._last_sent_time = now
-                logging.debug(f"Split message sent: {ok}")
                 return ok
             else:
                 ok = self._send_single_message(message)
                 if ok:
                     self._last_sent_hash = h
                     self._last_sent_time = now
-                logging.debug(f"Single message sent: {ok}")
                 return ok
-        except Exception as e:
-            logging.error(f"Error sending to Telegram: {e}")
+        except Exception:
             return False
 
     def _send_single_message(self, message: str) -> bool:
         if not self._base or not self.TELEGRAM_CHAT_ID:
-            logging.warning("Telegram base or chat ID missing.")
             return False
         try:
             r = self._session.post(
@@ -92,10 +78,8 @@ class ClipboardSender:
                 timeout=6,
             )
             r.raise_for_status()
-            logging.debug("Message sent successfully.")
             return True
-        except Exception as e:
-            logging.error(f"Error in single message send: {e}")
+        except Exception:
             return False
 
     def clean_telegram_message(self, text: str) -> str:
@@ -117,7 +101,6 @@ class ClipboardSender:
         return parts
 
     def copy_selected_text(self) -> bool:
-        logging.debug("Attempting to copy selected text.")
         try:
             old = pyperclip.paste()
             with self.keyboard.pressed(Key.ctrl):
@@ -127,22 +110,17 @@ class ClipboardSender:
             new = pyperclip.paste()
             if new and new != old:
                 self.last_clipboard_content = new
-                logging.debug("Text copied successfully.")
                 return True
-            logging.debug("No new text copied.")
             return False
-        except Exception as e:
-            logging.error(f"Error copying text: {e}")
+        except Exception:
             return False
 
     def process_clipboard(self) -> None:
-        logging.debug("Processing clipboard.")
         if self.copy_selected_text() and self.last_clipboard_content:
             self.send_to_telegram(self.last_clipboard_content)
 
 
 def signal_handler(sig, frame):
-    logging.info("Signal received, exiting.")
     sys.exit(0)
 
 
@@ -163,7 +141,6 @@ class DaemonContext:
         pass
 
     def _daemonize(self):
-        logging.debug("Daemonizing process.")
         try:
             if os.fork() > 0:
                 sys.exit(0)
@@ -190,7 +167,6 @@ class DaemonContext:
 
 class AudioTranscriberRealtime:
     def __init__(self):
-        logging.debug("Initializing AudioTranscriberRealtime.")
         load_dotenv()
         self.DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
         self.is_recording = False
@@ -206,7 +182,6 @@ class AudioTranscriberRealtime:
         self._session = requests.Session()
 
     def detect_pulse_monitor(self):
-        logging.debug("Detecting pulse monitor.")
         try:
             res = subprocess.run(
                 ["pactl", "info"], capture_output=True, text=True, check=True
@@ -214,20 +189,15 @@ class AudioTranscriberRealtime:
             for line in res.stdout.splitlines():
                 if line.startswith("Default Sink:"):
                     sink = line.split(":", 1)[1].strip()
-                    logging.debug(f"Detected monitor: {sink}.monitor")
                     return f"{sink}.monitor"
-            logging.debug("Using default monitor.")
             return "alsa_output.pci-0000_00_1f.3.analog-stereo.monitor"
-        except Exception as e:
-            logging.error(f"Error detecting monitor: {e}")
+        except Exception:
             return "alsa_output.pci-0000_00_1f.3.analog-stereo.monitor"
 
     def _on_message(self, ws, message):
-        logging.debug(f"WebSocket message received: {message[:50]}...")
         try:
             data = json.loads(message)
-        except Exception as e:
-            logging.error(f"Error parsing message: {e}")
+        except Exception:
             return
         if not isinstance(data, dict):
             return
@@ -241,28 +211,21 @@ class AudioTranscriberRealtime:
                     if is_final:
                         if text:
                             self._final_chunks.append(text)
-                            logging.debug(f"Final chunk added: {text}")
                         self._partial = ""
                     else:
                         self._partial = text
-                        logging.debug(f"Partial transcript: {text}")
 
     def _on_open(self, ws):
-        logging.debug("WebSocket opened.")
         self._ws_connected.set()
 
     def _on_close(self, ws, code, msg):
-        logging.debug(f"WebSocket closed: code={code}, msg={msg}")
         self._ws_connected.clear()
 
     def _on_error(self, ws, err):
-        logging.error(f"WebSocket error: {err}")
         self._ws_connected.clear()
 
     def start_recording(self):
-        logging.debug("Starting recording.")
         if self.is_recording:
-            logging.warning("Already recording.")
             return
         self.is_recording = True
         self._final_chunks = []
@@ -289,9 +252,7 @@ class AudioTranscriberRealtime:
             self.ffmpeg_process = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
-            logging.debug("FFmpeg started.")
-        except Exception as e:
-            logging.error(f"Error starting FFmpeg: {e}")
+        except Exception:
             self.is_recording = False
             return
 
@@ -312,18 +273,16 @@ class AudioTranscriberRealtime:
         )
 
         def run_ws():
-            logging.debug("Starting WebSocket thread.")
             try:
                 if self._ws_app is not None:
                     self._ws_app.run_forever(ping_interval=5, ping_timeout=3)
-            except Exception as e:
-                logging.error(f"WebSocket thread error: {e}")
+            except Exception:
+                pass
 
         self._ws_thread = threading.Thread(target=run_ws, daemon=True)
         self._ws_thread.start()
 
         if not self._ws_connected.wait(3):
-            logging.error("WebSocket connection timeout.")
             try:
                 self.ffmpeg_process.kill()
             except Exception:
@@ -332,7 +291,6 @@ class AudioTranscriberRealtime:
             return
 
         def send_audio():
-            logging.debug("Starting audio send thread.")
             try:
                 CHUNK = 4096
                 while not self._stop_sending.is_set():
@@ -344,27 +302,22 @@ class AudioTranscriberRealtime:
                     try:
                         if self._ws_app and self._ws_connected.is_set():
                             self._ws_app.send(chunk, opcode=ABNF.OPCODE_BINARY)
-                            logging.debug("Audio chunk sent.")
-                    except Exception as e:
-                        logging.error(f"Error sending audio chunk: {e}")
+                    except Exception:
                         break
                 try:
                     if self._ws_app and self._ws_connected.is_set():
                         self._ws_app.send(json.dumps({"type": "CloseStream"}))
-                        logging.debug("CloseStream signal sent.")
                     time.sleep(0.5)  # Give time for final results
-                except Exception as e:
-                    logging.error(f"Error sending close stream: {e}")
-            except Exception as e:
-                logging.error(f"Audio send thread error: {e}")
+                except Exception:
+                    pass
+            except Exception:
+                pass
 
         self._send_thread = threading.Thread(target=send_audio, daemon=True)
         self._send_thread.start()
 
     def stop_recording(self) -> Optional[str]:
-        logging.debug("Stopping recording.")
         if not self.is_recording:
-            logging.warning("Not recording.")
             return None
         self.is_recording = False
         try:
@@ -372,38 +325,32 @@ class AudioTranscriberRealtime:
                 try:
                     self.ffmpeg_process.terminate()
                     self.ffmpeg_process.wait(timeout=2)
-                    logging.debug("FFmpeg terminated.")
-                except Exception as e:
-                    logging.error(f"Error terminating FFmpeg: {e}")
+                except Exception:
                     try:
                         self.ffmpeg_process.kill()
-                        logging.debug("FFmpeg killed.")
-                    except Exception as e:
-                        logging.error(f"Error killing FFmpeg: {e}")
-        except Exception as e:
-            logging.error(f"General error stopping FFmpeg: {e}")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
         self._stop_sending.set()
         if self._send_thread and self._send_thread.is_alive():
             self._send_thread.join(timeout=2.0)
-            logging.debug("Send thread joined.")
         time.sleep(0.5)  # Allow time for final transcription
         try:
             if self._ws_app:
                 try:
                     self._ws_app.close()
-                    logging.debug("WebSocket closed.")
-                except Exception as e:
-                    logging.error(f"Error closing WebSocket: {e}")
-        except Exception as e:
-            logging.error(f"General error closing WebSocket: {e}")
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
         try:
             if self._ws_thread and self._ws_thread.is_alive():
                 self._ws_thread.join(timeout=0.5)
-                logging.debug("WS thread joined.")
-        except Exception as e:
-            logging.error(f"Error joining threads: {e}")
+        except Exception:
+            pass
 
         with self._transcript_lock:
             parts = list(self._final_chunks)
@@ -412,7 +359,6 @@ class AudioTranscriberRealtime:
             final_text = " ".join(parts).strip()
         self._final_chunks = []
         self._partial = ""
-        logging.debug(f"Final transcript: {final_text}")
         return final_text or None
 
 
@@ -445,7 +391,7 @@ def _extract_text_from_obj(obj: Any) -> str:
 
 
 class DeepSeekSolver:
-    def __init__(self):
+    def __init__(self, telegram_sender_instance=None):
         self.API_URL = "https://api.deepseek.com/v1/chat/completions"
         self.API_KEY = self._get_api_key()
         self.last_request_time = 0
@@ -454,6 +400,14 @@ class DeepSeekSolver:
         self.dpy = display.Display()
         self.current_indent = 0
         self.prev_line_ended_with_colon = False
+        self.telegram_sender = telegram_sender_instance
+        self._session = requests.Session()
+        self._session.headers.update(
+            {
+                "Authorization": f"Bearer {self.API_KEY}",
+                "Content-Type": "application/json",
+            }
+        )
 
     def _get_api_key(self) -> str:
         load_dotenv()
@@ -463,16 +417,14 @@ class DeepSeekSolver:
         return api_key
 
     @tenacity.retry(wait=tenacity.wait_exponential(multiplier=1, min=4, max=10))
-    def send_to_api(self, prompt: str) -> Optional[str]:
+    def send_to_api(
+        self, prompt: str, timeout: int = 30, max_tokens: int = 2000
+    ) -> Optional[str]:
         current_time = time.time()
         if current_time - self.last_request_time < self.RATE_LIMIT_DELAY:
             time.sleep(self.RATE_LIMIT_DELAY - (current_time - self.last_request_time))
 
-        headers = {
-            "Authorization": f"Bearer {self.API_KEY}",
-            "Content-Type": "application/json",
-        }
-        data = {
+        payload = {
             "model": "deepseek-chat",
             "messages": [
                 {
@@ -481,19 +433,113 @@ class DeepSeekSolver:
                 }
             ],
             "temperature": 0.2,
-            "max_tokens": 2000,
+            "max_tokens": max_tokens,
         }
 
         try:
-            response = requests.post(
-                self.API_URL, json=data, headers=headers, timeout=30
-            )
+            response = self._session.post(self.API_URL, json=payload, timeout=timeout)
             response.raise_for_status()
             self.last_request_time = time.time()
             code = response.json()["choices"][0]["message"]["content"]
             return code.replace("```python", "").replace("```", "").strip()
-        except requests.exceptions.RequestException:
+        except Exception:
             return None
+
+    def send_to_api_streaming(
+        self, prompt: str, buffer_chars: int = 200, min_send_interval: float = 1.0
+    ) -> Optional[str]:
+        now = time.time()
+        since = now - self.last_request_time
+        if since < self.RATE_LIMIT_DELAY:
+            time.sleep(self.RATE_LIMIT_DELAY - since)
+
+        payload = {
+            "model": "deepseek-chat",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 800,
+            "temperature": 0.0,
+            "stream": True,
+        }
+
+        resp = self._post_with_retries(payload, timeout=60, attempts=2, stream=True)
+        if not resp:
+            return None
+
+        buffer = ""
+        full = []
+        last_send = 0.0
+
+        try:
+            for raw_line in resp.iter_lines(decode_unicode=True):
+                if not raw_line:
+                    continue
+                line = raw_line.strip()
+                if line == "" or line == b"":
+                    continue
+                if line.startswith("data:"):
+                    line = line[len("data:") :].strip()
+                if line == "[DONE]":
+                    break
+                try:
+                    chunk_json = json.loads(line)
+                except Exception:
+                    continue
+                piece = (
+                    chunk_json.get("choices", [{}])[0]
+                    .get("delta", {})
+                    .get("content", "")
+                )
+                if piece:
+                    buffer += piece
+                    full.append(piece)
+                    nowt = time.time()
+                    if (
+                        len(buffer) >= buffer_chars
+                        or "\n\n" in buffer
+                        or (nowt - last_send) > min_send_interval
+                    ):
+                        if self.telegram_sender:
+                            self.telegram_sender.send_to_telegram(buffer)
+                        last_send = nowt
+                        buffer = ""
+            if buffer:
+                if self.telegram_sender:
+                    self.telegram_sender.send_to_telegram(buffer)
+            assembled = "".join(full).strip()
+            if assembled:
+                self.last_request_time = time.time()
+                return assembled
+            return None
+        except Exception:
+            return None
+        finally:
+            try:
+                resp.close()
+            except Exception:
+                pass
+
+    def _post_with_retries(
+        self, payload: dict, timeout: int = 10, attempts: int = 2, stream: bool = False
+    ):
+        for attempt in range(attempts):
+            try:
+                r = self._session.post(
+                    self.API_URL, json=payload, timeout=timeout, stream=stream
+                )
+                r.raise_for_status()
+                return r
+            except Exception:
+                if attempt + 1 < attempts:
+                    time.sleep(0.3)
+                else:
+                    return None
+
+    def _start_stream_send_background(self, prompt: str):
+        def job():
+            self.send_to_api_streaming(prompt)
+
+        t = threading.Thread(target=job, daemon=True)
+        t.start()
 
     def human_like_typing(self, text: str) -> None:
         global typing_paused, typing_active
@@ -634,22 +680,28 @@ class DeepSeekSolver:
         if solution:
             threading.Thread(target=self.human_like_typing, args=(solution,)).start()
 
+    def process_interview_question(self, question: str) -> None:
+        if not question or len(question.strip()) < 3:
+            return
+        prompt = (
+            f"Подготовь краткий тезисный ответ на вопрос в контексте программирования на Python: {question}\n\n"
+            "Ответь по порядку, только ключевые пункты, без введения, заключения и лишних слов. Если потребуется писать код, то пиши его на Python."
+        )
+        self._start_stream_send_background(prompt)
+
 
 class OpenAISolver:
     def __init__(self, telegram_sender_instance=None):
-        logging.debug("Initializing OpenAISolver.")
         load_dotenv()
         self.API_KEY = os.getenv("OPENAI_API_KEY")
         if not self.API_KEY:
-            logging.error("OPENAI_API_KEY not found.")
             raise RuntimeError("OPENAI_API_KEY not found in environment")
         self.last_request_time = 0.0
         self.RATE_LIMIT_DELAY = 0.5
         self.keyboard = Controller()
         try:
             self.dpy = display.Display()
-        except Exception as e:
-            logging.error(f"Error initializing display: {e}")
+        except Exception:
             self.dpy = None
         self.current_indent = 0
         self.prev_line_ended_with_colon = False
@@ -666,17 +718,14 @@ class OpenAISolver:
     def _post_with_retries(
         self, payload: dict, timeout: int = 10, attempts: int = 2, stream: bool = False
     ):
-        logging.debug(f"Sending API request with payload: {json.dumps(payload)}")
         for attempt in range(attempts):
             try:
                 r = self._session.post(
                     self.API_URL, json=payload, timeout=timeout, stream=stream
                 )
                 r.raise_for_status()
-                logging.debug("API request successful.")
                 return r
-            except Exception as e:
-                logging.error(f"API request error on attempt {attempt + 1}: {e}")
+            except Exception:
                 if attempt + 1 < attempts:
                     time.sleep(0.3)
                 else:
@@ -685,35 +734,35 @@ class OpenAISolver:
     def send_to_api(
         self, prompt: str, timeout: int = 8, max_tokens: int = 300
     ) -> Optional[str]:
-        logging.debug(f"Sending to API: {prompt[:50]}...")
         now = time.time()
         since = now - self.last_request_time
         if since < self.RATE_LIMIT_DELAY:
             time.sleep(self.RATE_LIMIT_DELAY - since)
         payload = {
             "model": "gpt-4o-mini",
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": f"{prompt}\n\nProvide only the correct Python code solution without any comments, explanations or additional text. The code must be perfectly formatted with proper indentation (without extra spaces) and no typos. Return only the code.",
+                }
+            ],
             "max_tokens": max_tokens,
             "temperature": 0.0,
         }
         r = self._post_with_retries(payload, timeout=timeout, attempts=2, stream=False)
         if not r:
-            logging.error("API response is None.")
             return None
         try:
             data = r.json()
             txt = data["choices"][0]["message"]["content"]
             self.last_request_time = time.time()
-            logging.debug(f"API response text: {txt[:50]}...")
-            return txt.strip() or None
-        except Exception as e:
-            logging.error(f"Error parsing API response: {e}")
+            return txt.replace("```python", "").replace("```", "").strip() or None
+        except Exception:
             return None
 
     def send_to_api_streaming(
         self, prompt: str, buffer_chars: int = 200, min_send_interval: float = 1.0
     ) -> Optional[str]:
-        logging.debug(f"Starting streaming API: {prompt[:50]}...")
         now = time.time()
         since = now - self.last_request_time
         if since < self.RATE_LIMIT_DELAY:
@@ -729,7 +778,6 @@ class OpenAISolver:
 
         resp = self._post_with_retries(payload, timeout=60, attempts=2, stream=True)
         if not resp:
-            logging.error("Streaming API response is None.")
             return None
 
         buffer = ""
@@ -749,8 +797,7 @@ class OpenAISolver:
                     break
                 try:
                     chunk_json = json.loads(line)
-                except Exception as e:
-                    logging.error(f"Error parsing chunk: {e}")
+                except Exception:
                     continue
                 piece = (
                     chunk_json.get("choices", [{}])[0]
@@ -767,38 +814,26 @@ class OpenAISolver:
                         or (nowt - last_send) > min_send_interval
                     ):
                         if self.telegram_sender:
-                            sent = self.telegram_sender.send_to_telegram(buffer)
-                            if sent:
-                                logging.debug("Buffer sent to Telegram.")
-                            else:
-                                logging.error("Failed to send buffer to Telegram.")
+                            self.telegram_sender.send_to_telegram(buffer)
                         last_send = nowt
                         buffer = ""
             if buffer:
                 if self.telegram_sender:
-                    sent = self.telegram_sender.send_to_telegram(buffer)
-                    if sent:
-                        logging.debug("Final buffer sent to Telegram.")
-                    else:
-                        logging.error("Failed to send final buffer to Telegram.")
+                    self.telegram_sender.send_to_telegram(buffer)
             assembled = "".join(full).strip()
             if assembled:
                 self.last_request_time = time.time()
-                logging.debug(f"Streaming assembled: {assembled[:50]}...")
                 return assembled
             return None
-        except Exception as e:
-            logging.error(f"Streaming error: {e}")
+        except Exception:
             return None
         finally:
             try:
                 resp.close()
-            except Exception as e:
-                logging.error(f"Error closing response: {e}")
+            except Exception:
+                pass
 
     def _start_stream_send_background(self, prompt: str):
-        logging.debug("Starting background streaming.")
-
         def job():
             self.send_to_api_streaming(prompt)
 
@@ -806,7 +841,6 @@ class OpenAISolver:
         t.start()
 
     def human_like_typing(self, text: str) -> None:
-        logging.debug(f"Starting human-like typing: {text[:50]}...")
         global typing_paused, typing_active
         if not text or typing_active:
             return
@@ -820,8 +854,8 @@ class OpenAISolver:
                     if w:
                         w.set_input_focus(X.RevertToParent, X.CurrentTime)
                         self.dpy.flush()
-                except Exception as e:
-                    logging.error(f"Error setting input focus: {e}")
+                except Exception:
+                    pass
             lines = text.split("\n")
             if len(lines) < 2:
                 return
@@ -879,8 +913,8 @@ class OpenAISolver:
                 elif stripped_line.startswith(("return", "break", "continue", "pass")):
                     self.current_indent = max(0, self.current_indent - 4)
 
-        except Exception as e:
-            logging.error(f"Error in human-like typing: {e}")
+        except Exception:
+            pass
         finally:
             typing_active = False
             self.current_indent = 0
@@ -925,31 +959,19 @@ class OpenAISolver:
                 time.sleep(0.1)
 
     def process_task(self) -> None:
-        logging.debug("Processing task.")
         if typing_active:
-            logging.warning("Typing active, skipping.")
             return
         t = pyperclip.paste().strip()
         if not t:
-            logging.debug("No task in clipboard.")
             return
-        prompt = (
-            f"{t}\n\nProvide only the correct Python code solution without any comments, explanations or additional text. "
-            "The code must be perfectly formatted with proper indentation (without extra spaces) and no typos. Return only the code."
-        )
-        sol = self.send_to_api(prompt, timeout=7, max_tokens=300)
+        sol = self.send_to_api(t, timeout=7, max_tokens=300)
         if sol:
-            sol = sol.replace("```python", "").replace("```", "").strip()
             threading.Thread(
                 target=self.human_like_typing, args=(sol,), daemon=True
             ).start()
-        else:
-            logging.error("No solution from API.")
 
     def process_interview_question(self, question: str) -> None:
-        logging.debug(f"Processing interview question: {question}")
         if not question or len(question.strip()) < 3:
-            logging.warning("Question too short.")
             return
         prompt = (
             f"Подготовь краткий тезисный ответ на вопрос в контексте программирования на Python: {question}\n\n"
@@ -961,41 +983,32 @@ class OpenAISolver:
 def toggle_typing_pause():
     global typing_paused
     typing_paused = not typing_paused
-    logging.debug(f"Typing pause toggled to: {typing_paused}")
 
 
 def run_daemon():
-    logging.info("Starting daemon.")
     global telegram_sender
     telegram_sender = ClipboardSender()
-    solver = OpenAISolver(telegram_sender_instance=telegram_sender)
+    task_solver = DeepSeekSolver()
+    audio_solver = OpenAISolver(telegram_sender_instance=telegram_sender)
     transcriber = AudioTranscriberRealtime()
     num_lock_pressed = False
 
     def process_audio_question():
-        logging.debug("Processing audio question.")
         question = transcriber.stop_recording()
         if question:
-            logging.debug(f"Got question: {question}")
-            solver.process_interview_question(question)
-        else:
-            logging.warning("No question from transcription.")
+            audio_solver.process_interview_question(question)
 
     def on_press(key):
         nonlocal num_lock_pressed
         try:
             if key == Key.f8:
-                logging.debug("F8 pressed - process task.")
-                solver.process_task()
+                task_solver.process_task()
             elif key == Key.f9:
-                logging.debug("F9 pressed - toggle pause.")
                 toggle_typing_pause()
             elif key == Key.insert:
-                logging.debug("Insert pressed - process clipboard.")
                 if telegram_sender:
                     telegram_sender.process_clipboard()
             elif key == Key.num_lock:
-                logging.debug("NumLock pressed - start recording.")
                 if not num_lock_pressed:
                     num_lock_pressed = True
                     transcriber.start_recording()
@@ -1006,7 +1019,6 @@ def run_daemon():
         nonlocal num_lock_pressed
         try:
             if key == Key.num_lock:
-                logging.debug("NumLock released - stop recording.")
                 if num_lock_pressed:
                     num_lock_pressed = False
                     threading.Thread(target=process_audio_question, daemon=True).start()
@@ -1014,12 +1026,10 @@ def run_daemon():
             pass
 
     with Listener(on_press=on_press, on_release=on_release) as listener:
-        logging.info("Listener started.")
         listener.join()
 
 
 if __name__ == "__main__":
-    logging.info("Program starting.")
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     try:
@@ -1027,6 +1037,5 @@ if __name__ == "__main__":
             detach_process=True, umask=0o022, working_directory=os.path.expanduser("~")
         ):
             run_daemon()
-    except Exception as e:
-        logging.error(f"Fatal error: {e}")
+    except Exception:
         sys.exit(1)
