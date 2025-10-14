@@ -1,147 +1,185 @@
 # 🇬🇧 English Version
+
 ## DeepSeek Live-Coding Assistant Daemon
 
-A lightweight helper daemon designed to assist with solving live-coding problems during technical interviews.
+A sophisticated multi-functional AI-assistant daemon designed to assist with technical interviews, featuring AI-powered code generation, real-time audio transcription, and intelligent dialogue management.
 
-- It grabs the problem description from your clipboard and simulates human-like typing to enter the generated solution directly into your code editor.
-- Simply copy the task (Ctrl+C), and when ready, press F8 to begin typing the generated solution.
-- You can pause/resume the typing process at any moment by pressing F9.
+### ✨ Advanced Features
 
-### ⚠️ Notice
-
-- This is *not* a plug-and-play tool — you must stay attentive during usage.
-- Due to technical limitations, the bot may misjudge indentation. Manual corrections might be needed.
-- Occasional typos or quirks in generated text are intentional to simulate human input, but still, review everything as you go.
-
-### ✨ Features
-
-- Automatically queries DeepSeek API to generate Python code for the copied task.
-- Simulates human typing with realistic speed and behavior.
-- Allows pausing/resuming typing via hotkeys (F9).
+- **Dual AI Integration**: Supports both DeepSeek and OpenAI APIs for different use cases
+- **Real-time Audio Transcription**: Transcribes spoken interview questions using Deepgram API
+- **Intelligent Dialogue Context**: Maintains conversation context across multiple questions
+- **Human-like Typing Simulation**: Realistic typing
+- **Telegram Integration**: Sends selected text and AI responses to Telegram
+- **Hotkey Controls**: Multiple hotkeys for different functions
+- **Background Daemon**: Runs as a system daemon for continuous operation
 
 ### 🔧 Requirements
 
-- A valid DeepSeek API key.
-- Python 3.7+
-- Supported platforms:
-  - Linux with X11 (KDE Plasma recommended)
-  - Windows is *not supported*.
+- **Python 3.7+**
+- **Supported platforms**: Linux with X11 (KDE Plasma recommended)
+- **Required APIs**:
+  - DeepSeek API key
+  - OpenAI API key (optional, for audio questions)
+  - Deepgram API key (optional, for audio transcription)
+  - Telegram Bot Token (optional, for notifications)
 
 ### 📦 Dependencies
 
-- Python dependencies are listed in `requirements.txt`. Install them with:
+Install dependencies from `requirements.txt`:
 
 ```bash
 pip install -r requirements.txt
 ```
-- Create file .env
+
+### 🔑 Environment Configuration
+
+Create a `.env` file with the following variables:
+
 ```ini
 DEEPSEEK_API_KEY='your_deepseek_api_key_here'
-
-TELEGRAM_BOT_TOKEN="Bot_token from BotFather"
-TELEGRAM_CHAT_ID="your chat_ID to connect your telegram to your Bot"
-```
-- Install to work with clipboard:
-```bash
-sudo pacman -S xclip
+OPENAI_API_KEY='your_openai_api_key_here'
+DEEPGRAM_API_KEY='your_deepgram_api_key_here'
+TELEGRAM_BOT_TOKEN="your_telegram_bot_token"
+TELEGRAM_CHAT_ID="your_telegram_chat_id"
 ```
 
 ### 🚀 How to Use
 
-- (Recommended) Activate your virtual environment with all required dependencies installed:
-```bash
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
+1. **Setup Environment**:
 
-- And then run app:
-```bash
-python wp-6
-```
+   ```bash
+   python -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
 
-- Once activated, the program runs as a daemon (in the background):
+2. **Run the Application**:
 
-  1. Copy the task description to your clipboard (Ctrl+C).
+   ```bash
+   python wp_10.py
+   ```
 
-  2. Press F8 to activate input mode.
+### ⌨️ Hotkey Controls
 
-  3. If needed, press F9 to pause and resume the process.
+- **F8**: Solve coding task from clipboard using DeepSeek
+- **F9**: Pause/resume typing process
+- **INSERT**: Send selected text to Telegram
+- **NumLock**: Start/stop audio recording for interview questions (uses OpenAI)
 
-- I’ve expanded the “toolkit” a bit and added:
+### 🔄 Available Scripts
 
-  1. SQL_wp_6.py – for solving SQL-related tasks.
+- **wp_10.py**: Main application with all features (recommended)
+- **wp_9.py**: Previous version with audio transcription
+- **wp_8.py**: Basic version with DeepSeek integration
+- **SQL_wp_6.py**: SQL task solver
+- **cc_1.py**: Cash-Cacher for sending text to Telegram
 
-  2. cc_1.py – Cash-Cacher: sends the selected text on your screen directly to your Telegram by pressing F8.
+### ⚠️ Important Notes
 
-  3. wp_7.py – In addition to the main functionality, it includes a built-in Cash-Cacher: sends the selected text on your screen to your Telegram bot by pressing INSERT.
+- This is an advanced tool requiring active monitoring during use
+- Audio transcription requires Deepgram API key
+- OpenAI integration is optional but recommended for audio questions
+- Manual indentation correction may be needed occasionally
+- The tool simulates human typing with realistic imperfections
 
-################################################################################
-# 🇷🇺 Русская версия
+### 🎯 Use Cases
+
+1. **Live Coding Interviews**: Copy task description and press F8 for AI-generated solution
+2. **Technical Q&A**: Use NumLock to record and transcribe interview questions
+3. **Code Sharing**: Press INSERT to send selected code to Telegram
+4. **SQL Tasks**: Use SQL_wp_6.py for database-related problems
+
+---
+
+# Русская версия
+
 ## DeepSeek Live-Coding Assistant Daemon
 
-Небольшой служебный демон, который помогает при решении задач на Live-Coding во время технических собеседований.
+Многофункциональный АИ-ассистент для технических собеседований с поддержкой генерации кода, транскрипции аудио и интеллектуальным управлением диалогом.
 
-- Он вытаскивает описание проблемы из вашего буфера обмена и имитирует человеческую печать, чтобы ввести сгенерированное решение непосредственно в ваш редактор.
-- Просто выделите задачу, нажмите Ctrl+C и, когда будете готовы, активируйте ввод готового решения на F8.
-- При необходимости вы можете поставить ввод на паузу, нажав F9, что-то поправить и продолжить ввод снова, нажав на F9.
+### ✨ Расширенные возможности
 
-### ⚠️ Внимание
-
-- Это не решение по типу "включил и забыл".
-- По понятным причинам бот может некорректно отслеживать отступы — вам придётся вручную проверять и при необходимости исправлять их.
-- ИИ может допускать ошибки в орфографии — это нормально и даже добавляет натуральности процессу, но вы тоже должны следить за результатом.
-
-### ✨ Функции
-
-- Автоматически извлекает решение кода для поставленной задачи через DeepSeek API.
-- Имитирует человеческую печать с реалистичным таймингом.
-- Позволяет приостанавливать/возобновлять печать в середине процесса простыми горячими клавишами (F9).
+- **Двойная AI-интеграция**: Поддержка DeepSeek и OpenAI API для разных задач
+- **Транскрипция аудио в реальном времени**: Расшифровка устных вопросов через Deepgram API
+- **Интеллектуальный контекст диалога**: Сохранение контекста между вопросами
+- **Реалистичная имитация печати**: Естественная печать
+- **Интеграция с Telegram**: Отправка выделенного текста и ответов AI в Telegram
+- **Горячие клавиши**: Множество горячих клавиш для разных функций
+- **Фоновый демон**: Работа в фоновом режиме как системный демон
 
 ### 🔧 Требования
 
-- Валидный API-ключ DeepSeek.
-- Python 3.7+
-- Поддерживаемая среда:
-  - Только Linux с X11 (рекомендуется KDE Plasma)
-  - Windows не поддерживается.
+- **Python 3.7+**
+- **Поддерживаемые платформы**: Linux с X11 (рекомендуется KDE Plasma)
+- **Необходимые API**:
+  - DeepSeek API ключ
+  - OpenAI API ключ (опционально, для аудиовопросов)
+  - Deepgram API ключ (опционально, для транскрипции)
+  - Telegram Bot Token (опционально, для уведомлений)
 
 ### 📦 Зависимости
 
-- Зависимости Python определены в `requirements.txt`. Установите их командой:
+Установите зависимости из `requirements.txt`:
 
 ```bash
 pip install -r requirements.txt
 ```
-- Создай файл .env
+
+### 🔑 Настройка окружения
+
+Создайте файл `.env` со следующими переменными:
+
 ```ini
-DEEPSEEK_API_KEY='your_deepseek_api_key_here'
-
-TELEGRAM_BOT_TOKEN="Bot_token from BotFather"
-TELEGRAM_CHAT_ID="your chat_ID to connect your telegram_account to your Bot"
+DEEPSEEK_API_KEY='ваш_deepseek_api_ключ'
+OPENAI_API_KEY='ваш_openai_api_ключ'
+DEEPGRAM_API_KEY='ваш_deepgram_api_ключ'
+TELEGRAM_BOT_TOKEN="токен_вашего_телеграм_бота"
+TELEGRAM_CHAT_ID="ваш_телеграм_chat_id"
 ```
-- Установи для работы c clipboard
-```bash
-sudo pacman -S xclip
-```
-
 
 ### 🚀 Как использовать
 
-- Активируй виртуальное окружение (желательно) со всеми установленными зависимостями и запусти:
-```bash
-python wp-6
-```
-- Когда активирован работает в режиме демона (в фоне):
-  1. Скопируйте условие задачи в буфер обмена (Ctrl+C).
-  2. Нажмите F8, чтобы активировать ввод.
-  3. При необходимости нажмите F9, чтобы поставить на паузу и снова продолжить.
+1. **Настройка окружения**:
 
-- Я немного расширил "зоопарк" и добавил:
-  1. SQL_wp_6.py - для решения задач по SQL
-  2. cc_1.py - сash-cacher отправляет выделенный текст на экране сразу тебе в телеграм по нажатию F8
-  3. wp_7.py - + к основному функционалу -> встроенный cash_cacher - отправляет выделенный на экране текст тебе в телеграм-бота по нажатию INSERT
+   ```bash
+   python -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
 
+2. **Запуск приложения**:
 
+   ```bash
+   python wp_10.py
+   ```
 
+### ⌨️ Горячие клавиши
 
+- **F8**: Решение алгоритмических и других задач (Python) из буфера обмена (CTRL+C) (DeepSeek)
+- **F9**: Пауза/возобновление ввода задачи
+- **INSERT**: Отправка выделенного текста в Telegram
+- **NumLock**: Старт/стоп записи аудио для вопросов (использует OpenAI)
+
+### 🔄 Доступные скрипты
+
+- **wp_10.py**: Основное приложение со всеми функциями (рекомендуется)
+- **wp_9.py**: Предыдущая версия с транскрипцией аудио, но без контекстного окна
+- **wp_8.py**: Базовая версия с интеграцией DeepSeek под все задачи
+- **SQL_wp_6.py**: Решение SQL-задач
+- **cc_1.py**: Cash-Cacher для отправки текста в Telegram
+
+### ⚠️ Важные замечания
+
+- Это продвинутый инструмент, требующий активного контроля во время использования
+- Транскрипция аудио требует Deepgram API ключ
+- Интеграция с OpenAI опциональна, но рекомендуется для аудиовопросов
+- Иногда может потребоваться ручная коррекция отступов
+- Инструмент имитирует человеческую печать с реалистичными несовершенствами
+
+### 🎯 Сценарии использования
+
+1. **Live Coding собеседования**: Скопируйте условие задачи (CTRL+C) и нажмите F8 для AI-решения
+2. **Технические вопросы**: Используйте NumLock для записи аудио-вопросов - ответы отправляются в ваш телеграм-бот (требуется TELEGRAM_BOT_TOKEN и CHAT_ID)
+3. **Сохранение важной информации**: Нажмите INSERT для отправки выделенного кода в Telegram (требуется TELEGRAM_BOT_TOKEN и CHAT_ID)
+4. **SQL задачи**: Используйте SQL_wp_6.py для задач по базам данных SQL
