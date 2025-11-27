@@ -1,12 +1,14 @@
 import json
 import os
+import queue
 import random
 import signal
 import subprocess
 import sys
 import threading
 import time
-from typing import Optional
+from dataclasses import dataclass
+from typing import Any, List, Optional
 
 import pyperclip
 import requests
@@ -20,6 +22,128 @@ from Xlib import X, display
 typing_paused = False
 typing_active = False
 telegram_sender = None
+
+
+@dataclass
+class QAEntry:
+    question: str
+    answer: str
+    timestamp: float
+    tokens: int = 0
+
+
+class DialogueContextManager:
+    def __init__(
+        self,
+        max_recent_entries: int = 8,
+        max_tokens: int = 1000,
+        summarization_threshold: int = 800,
+        solver: Optional[Any] = None,
+    ):
+        self.max_recent_entries = max_recent_entries
+        self.max_tokens = max_tokens
+        self.summarization_threshold = summarization_threshold
+        self.solver = solver
+
+        self.recent_qa: List[QAEntry] = []
+        self.summary: str = ""
+        self.last_summarization_time: float = 0
+        self.min_summarization_interval: float = 60
+
+        self._token_count = 0
+        self._summarization_lock = threading.Lock()
+        self._summarization_queue = queue.Queue()
+        self._summarization_thread = None
+        self._start_summarization_worker()
+
+    def _start_summarization_worker(self):
+        def worker():
+            while True:
+                try:
+                    qa_entries = self._summarization_queue.get(timeout=300)
+                    if qa_entries is None:
+                        break
+                    self._perform_summarization(qa_entries)
+                    self._summarization_queue.task_done()
+                except queue.Empty:
+                    continue
+
+        self._summarization_thread = threading.Thread(target=worker, daemon=True)
+        self._summarization_thread.start()
+
+    def _estimate_tokens(self, text: str) -> int:
+        return len(text.split()) + len(text) // 4
+
+    def add_qa(self, question: str, answer: str) -> None:
+        entry = QAEntry(
+            question=question,
+            answer=answer,
+            timestamp=time.time(),
+            tokens=self._estimate_tokens(question + answer),
+        )
+        self.recent_qa.append(entry)
+        self._token_count += entry.tokens
+
+        while len(self.recent_qa) > self.max_recent_entries:
+            removed = self.recent_qa.pop(0)
+            self._token_count -= removed.tokens
+
+        self._check_summarization_needed()
+
+    def _check_summarization_needed(self) -> None:
+        current_time = time.time()
+        if (
+            self._token_count > self.summarization_threshold
+            and current_time - self.last_summarization_time
+            > self.min_summarization_interval
+        ):
+            qa_to_summarize = self.recent_qa.copy()
+            try:
+                self._summarization_queue.put_nowait(qa_to_summarize)
+            except queue.Full:
+                pass
+
+    def _perform_summarization(self, qa_entries: List[QAEntry]) -> None:
+        if not qa_entries or not self.solver:
+            return
+
+        dialogue_text = "\n".join(
+            [f"Вопрос: {e.question}\nОтвет: {e.answer}\n" for e in qa_entries]
+        )
+
+        prompt = f"""Суммаризируй диалог системного аналитика. Сохрани важные моменты и сделай краткое резюме на русском.
+
+Диалог:
+{dialogue_text}
+
+Краткое резюме:"""
+
+        summary = self.solver.send_summarization(prompt)
+        if summary:
+            with self._summarization_lock:
+                self.summary = summary.strip()
+                self.last_summarization_time = time.time()
+                keep_count = 2
+                if len(self.recent_qa) > keep_count:
+                    self.recent_qa = self.recent_qa[-keep_count:]
+                    self._token_count = sum(e.tokens for e in self.recent_qa)
+                    self._token_count += self._estimate_tokens(self.summary)
+
+    def get_context_for_query(self, new_question: str) -> str:
+        parts = []
+        if self.summary:
+            parts.append(f"Краткое резюме предыдущего обсуждения:\n{self.summary}\n")
+        if self.recent_qa:
+            parts.append("Последние вопросы и ответы:")
+            for entry in self.recent_qa[-3:]:
+                parts.append(f"В: {entry.question}")
+                parts.append(f"О: {entry.answer}")
+        return "\n".join(parts) if parts else ""
+
+    def clear(self) -> None:
+        self.recent_qa.clear()
+        self.summary = ""
+        self._token_count = 0
 
 
 class ClipboardSender:
@@ -48,7 +172,6 @@ class ClipboardSender:
                 and (now - self._last_sent_time) < self._debounce_seconds
             ):
                 return False
-
             if len(message) > 4000:
                 parts = self.split_long_message(message)
                 ok = True
@@ -362,9 +485,8 @@ class AudioTranscriberRealtime:
         return final_text or None
 
 
-class DeepSeekSolver:
+class DeepSeekSQLSolver:
     def __init__(self, telegram_sender_instance=None):
-        load_dotenv()
         self.API_URL = "https://api.deepseek.com/v1/chat/completions"
         self.API_KEY = self._get_api_key()
         self.last_request_time = 0
@@ -375,51 +497,47 @@ class DeepSeekSolver:
         self.prev_line_ended_with_colon = False
         self.telegram_sender = telegram_sender_instance
         self._session = requests.Session()
+        self._session.headers.update(
+            {
+                "Authorization": f"Bearer {self.API_KEY}",
+                "Content-Type": "application/json",
+            }
+        )
 
     def _get_api_key(self) -> str:
+        load_dotenv()
         api_key = os.getenv("DEEPSEEK_API_KEY")
         if not api_key:
-            raise RuntimeError("API ключ не найден")
+            raise RuntimeError("DEEPSEEK_API_KEY не найден")
         return api_key
 
     @tenacity.retry(wait=tenacity.wait_exponential(multiplier=1, min=4, max=10))
-    def send_to_api(self, prompt: str, max_tokens: int = 2000) -> Optional[str]:
+    def send_to_api(self, prompt: str) -> Optional[str]:
         current_time = time.time()
         if current_time - self.last_request_time < self.RATE_LIMIT_DELAY:
             time.sleep(self.RATE_LIMIT_DELAY - (current_time - self.last_request_time))
-
-        headers = {
-            "Authorization": f"Bearer {self.API_KEY}",
-            "Content-Type": "application/json",
-        }
         data = {
             "model": "deepseek-chat",
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.2,
-            "max_tokens": max_tokens,
+            "max_tokens": 2000,
         }
-
         try:
-            response = self._session.post(
-                self.API_URL, json=data, headers=headers, timeout=30
-            )
+            response = self._session.post(self.API_URL, json=data, timeout=30)
             response.raise_for_status()
             self.last_request_time = time.time()
-            result = response.json()["choices"][0]["message"]["content"]
-            return result.replace("```python", "").replace("```", "").strip()
-        except Exception:
+            code = response.json()["choices"][0]["message"]["content"]
+            return code.replace("```sql", "").replace("```", "").strip()
+        except requests.exceptions.RequestException:
             return None
 
     def human_like_typing(self, text: str) -> None:
         global typing_paused, typing_active
-
         if not text or typing_active:
             return
-
         typing_active = True
         self.current_indent = 0
         self.prev_line_ended_with_colon = False
-
         try:
             window = self.dpy.get_input_focus().focus
             if window:
@@ -436,7 +554,6 @@ class DeepSeekSolver:
                 if non_empty_lines
                 else 0
             )
-
             clean_lines = [lines[0]] + [
                 line[min_indent:] if line.strip() else line for line in lines[1:]
             ]
@@ -447,7 +564,6 @@ class DeepSeekSolver:
                         time.sleep(0.1)
                         if not typing_active:
                             return
-
                 if not line.strip():
                     self.keyboard.press(Key.enter)
                     self.keyboard.release(Key.enter)
@@ -456,7 +572,6 @@ class DeepSeekSolver:
 
                 stripped_line = line.lstrip()
                 line_indent = len(line) - len(stripped_line)
-
                 if i > 1:
                     while self.current_indent < line_indent:
                         if typing_paused:
@@ -469,114 +584,65 @@ class DeepSeekSolver:
 
                 self._type_line(stripped_line)
 
-                if typing_paused:
-                    while typing_paused:
-                        time.sleep(0.1)
-                        if not typing_active:
-                            return
-
                 if i < len(clean_lines) - 1:
                     self.keyboard.press(Key.enter)
                     self.keyboard.release(Key.enter)
                     time.sleep(random.uniform(0.3, 0.9))
 
-                self.prev_line_ended_with_colon = line.rstrip().endswith(":")
-                if self.prev_line_ended_with_colon:
-                    self.current_indent += 4
-                elif stripped_line.startswith(("return", "break", "continue", "pass")):
-                    self.current_indent = max(0, self.current_indent - 4)
-
         finally:
             typing_active = False
             self.current_indent = 0
-            self.prev_line_ended_with_colon = False
 
     def _type_line(self, line: str) -> None:
         global typing_paused
         time.sleep(random.uniform(0.1, 0.2))
         word_buffer = ""
-
         for char in line:
             if typing_paused:
                 while typing_paused:
                     time.sleep(0.1)
                     if not typing_active:
                         return
-
             word_buffer += char
-
             if char.isspace():
                 if len(word_buffer.strip()) > 3 and random.random() < 0.3:
                     time.sleep(random.uniform(0.4, 0.8))
                 word_buffer = ""
-
             delay = random.gauss(0.14, 0.08)
             delay = min(max(0.08, delay), 0.27)
             time.sleep(delay)
-
             self.keyboard.press(char)
             self.keyboard.release(char)
 
-            if random.random() < 0.02 and char.isalpha() and len(word_buffer) > 6:
-                wrong_char = chr(ord(char) + random.randint(-1, 1))
-                self.keyboard.press(wrong_char)
-                self.keyboard.release(wrong_char)
-                time.sleep(0.1)
-                self.keyboard.press(Key.backspace)
-                self.keyboard.release(Key.backspace)
-                time.sleep(0.1)
-                self.keyboard.press(char)
-                self.keyboard.release(char)
-                time.sleep(0.1)
-
-    def process_task(self) -> None:
+    def process_sql_task(self) -> None:
         if typing_active:
             return
-
         task = pyperclip.paste().strip()
         if not task:
             return
-
         prompt = (
-            f"{task}\n\nProvide only the correct Python code solution without any comments, "
-            "explanations or additional text. The code must be perfectly formatted with proper "
-            "indentation (without extra spaces) and no typos. Return only the code."
+            f"{task}\n\n"
+            "Provide only the correct raw SQL code solution without any comments, explanations or additional text. "
+            "The code must be perfectly formatted with proper indentation (without extra spaces) and no typos. "
+            "Return only the code."
         )
-
         solution = self.send_to_api(prompt)
         if solution:
             threading.Thread(target=self.human_like_typing, args=(solution,)).start()
 
-    def process_interview_question(self, question: str) -> None:
-        if not question or len(question.strip()) < 3:
-            return
 
-        prompt = (
-            f"Подготовь краткий тезисный ответ на вопрос в контексте программирования на Python: {question}\n\n"
-            "Ответь по порядку, только ключевые пункты, без введения, заключения и лишних слов. Если потребуется писать код, то пиши его на Python."
-        )
-
-        answer = self.send_to_api(prompt, max_tokens=500)
-        if answer and self.telegram_sender:
-            self.telegram_sender.send_to_telegram(answer)
-
-
-class OpenAISolver:
-    def __init__(self, telegram_sender_instance=None):
+class SystemAnalystSolver:
+    def __init__(
+        self,
+        telegram_sender_instance=None,
+        context_manager: Optional[DialogueContextManager] = None,
+    ):
         load_dotenv()
         self.API_KEY = os.getenv("OPENAI_API_KEY")
         if not self.API_KEY:
-            raise RuntimeError("OPENAI_API_KEY not found in environment")
-        self.last_request_time = 0.0
-        self.RATE_LIMIT_DELAY = 0.5
-        self.keyboard = Controller()
-        try:
-            self.dpy = display.Display()
-        except Exception:
-            self.dpy = None
-        self.current_indent = 0
-        self.prev_line_ended_with_colon = False
+            raise RuntimeError("OPENAI_API_KEY not found")
         self.telegram_sender = telegram_sender_instance
+        self.context_manager = context_manager
         self._session = requests.Session()
         self._session.headers.update(
             {
@@ -585,58 +651,120 @@ class OpenAISolver:
             }
         )
         self.API_URL = "https://api.openai.com/v1/chat/completions"
+        self.last_request_time = 0.0
+        self.RATE_LIMIT_DELAY = 0.5
 
-    def _post_with_retries(self, payload: dict, timeout: int = 10, attempts: int = 2):
-        for attempt in range(attempts):
-            try:
-                r = self._session.post(self.API_URL, json=payload, timeout=timeout)
-                r.raise_for_status()
-                return r
-            except Exception:
-                if attempt + 1 < attempts:
-                    time.sleep(0.3)
-                else:
-                    return None
+    def send_summarization(self, prompt: str) -> Optional[str]:
+        payload = {
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 400,
+            "temperature": 0.3,
+        }
+        try:
+            r = self._session.post(self.API_URL, json=payload, timeout=30)
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"].strip()
+        except Exception:
+            return None
 
-    def send_to_api(
-        self, prompt: str, timeout: int = 30, max_tokens: int = 500
-    ) -> Optional[str]:
+    def send_to_api_streaming(self, prompt: str) -> Optional[str]:
         now = time.time()
-        since = now - self.last_request_time
-        if since < self.RATE_LIMIT_DELAY:
-            time.sleep(self.RATE_LIMIT_DELAY - since)
+        if now - self.last_request_time < self.RATE_LIMIT_DELAY:
+            time.sleep(self.RATE_LIMIT_DELAY - (now - self.last_request_time))
 
         payload = {
             "model": "gpt-4o-mini",
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": max_tokens,
-            "temperature": 0.7,
+            "max_tokens": 1500,
+            "temperature": 0.3,
+            "stream": True,
         }
-
-        r = self._post_with_retries(payload, timeout=timeout, attempts=2)
-        if not r:
-            return None
-
         try:
-            data = r.json()
-            txt = data["choices"][0]["message"]["content"]
-            self.last_request_time = time.time()
-            return txt.strip() or None
+            resp = self._session.post(
+                self.API_URL, json=payload, timeout=60, stream=True
+            )
+            resp.raise_for_status()
         except Exception:
             return None
 
-    def process_interview_question(self, question: str) -> None:
-        if not question or len(question.strip()) < 3:
+        buffer = ""
+        full = []
+        last_send = 0.0
+        try:
+            for raw_line in resp.iter_lines(decode_unicode=True):
+                if not raw_line:
+                    continue
+                line = raw_line.strip()
+                if not line or line in ("[DONE]", "data: [DONE]"):
+                    continue
+                if line.startswith("data:"):
+                    line = line[5:].strip()
+                try:
+                    chunk = json.loads(line)
+                    piece = (
+                        chunk.get("choices", [{}])[0]
+                        .get("delta", {})
+                        .get("content", "")
+                    )
+                except Exception:
+                    continue
+                if piece:
+                    buffer += piece
+                    full.append(piece)
+                    now = time.time()
+                    if (
+                        len(buffer) >= 200
+                        or "\n\n" in buffer
+                        or (now - last_send) > 1.0
+                    ):
+                        if self.telegram_sender:
+                            self.telegram_sender.send_to_telegram(buffer)
+                        last_send = now
+                        buffer = ""
+            if buffer and self.telegram_sender:
+                self.telegram_sender.send_to_telegram(buffer)
+            assembled = "".join(full).strip()
+            self.last_request_time = time.time()
+            return assembled
+        except Exception:
+            return None
+        finally:
+            try:
+                resp.close()
+            except Exception:
+                pass
+
+    def process_analyst_question(self, question: str) -> None:
+        if not question or len(question.strip()) < 5:
             return
 
-        prompt = (
-            f"Подготовь краткий тезисный ответ на вопрос в контексте программирования на Python: {question}\n\n"
-            "Ответь по порядку, только ключевые пункты, без введения, заключения и лишних слов. Если потребуется писать код, то пиши его на Python."
+        context = (
+            self.context_manager.get_context_for_query(question)
+            if self.context_manager
+            else ""
         )
 
-        answer = self.send_to_api(prompt, timeout=30, max_tokens=500)
-        if answer and self.telegram_sender:
-            self.telegram_sender.send_to_telegram(answer)
+        if context:
+            prompt = f"""Ты — эксперт-системный аналитик с большим опытом и проходишь собеседование.
+
+Контекст предыдущего обсуждения:
+{context}
+
+Новый вопрос: {question}
+
+Ответь тезисно, профессионально и структурировано. Отвечай без воды, но достаточно полно."""
+        else:
+            prompt = f"""Ты — эксперт-системный аналитик и проходишь собеседование.
+
+Вопрос: {question}
+
+Ответь тезисно, профессионально и структурировано. Отвечай без воды, но достаточно полно."""
+
+        answer = self.send_to_api_streaming(prompt)
+
+        if answer and self.context_manager:
+            self.context_manager.add_qa(question, answer)
 
 
 def toggle_typing_pause():
@@ -646,13 +774,15 @@ def toggle_typing_pause():
 
 def run_daemon():
     global telegram_sender
+
+    context_manager = DialogueContextManager()
     telegram_sender = ClipboardSender()
 
-    # Используем DeepSeekSolver для решения задач (F8)
-    task_solver = DeepSeekSolver(telegram_sender_instance=telegram_sender)
-
-    # Используем OpenAISolver для аудиовопросов (NumLock)
-    audio_solver = OpenAISolver(telegram_sender_instance=telegram_sender)
+    sql_solver = DeepSeekSQLSolver(telegram_sender_instance=telegram_sender)
+    analyst_solver = SystemAnalystSolver(
+        telegram_sender_instance=telegram_sender, context_manager=context_manager
+    )
+    context_manager.solver = analyst_solver
 
     transcriber = AudioTranscriberRealtime()
     num_lock_pressed = False
@@ -660,19 +790,17 @@ def run_daemon():
     def process_audio_question():
         question = transcriber.stop_recording()
         if question:
-            audio_solver.process_interview_question(question)
+            analyst_solver.process_analyst_question(question)
 
     def on_press(key):
         nonlocal num_lock_pressed
         try:
             if key == Key.f8:
-                # Используем DeepSeekSolver для решения задач
-                task_solver.process_task()
+                sql_solver.process_sql_task()
             elif key == Key.f9:
                 toggle_typing_pause()
             elif key == Key.insert:
-                if telegram_sender:
-                    telegram_sender.process_clipboard()
+                telegram_sender.process_clipboard()
             elif key == Key.num_lock:
                 if not num_lock_pressed:
                     num_lock_pressed = True
@@ -702,5 +830,6 @@ if __name__ == "__main__":
             detach_process=True, umask=0o022, working_directory=os.path.expanduser("~")
         ):
             run_daemon()
-    except Exception:
+    except Exception as e:
+        print(f"Ошибка запуска: {e}")
         sys.exit(1)
