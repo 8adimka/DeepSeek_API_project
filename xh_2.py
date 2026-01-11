@@ -1041,7 +1041,7 @@ def run_daemon():
                 return
 
             if ctrl_pressed and not num_lock_pressed:
-                if key == Key.num_1:
+                if key == Key.f1:
                     threading.Thread(
                         target=lambda: send_to_telegram_with_prefix(
                             analyst_solver.check_requirements_completeness(),
@@ -1049,7 +1049,7 @@ def run_daemon():
                         ),
                         daemon=True,
                     ).start()
-                elif key == Key.num_2:
+                elif key == Key.f2:
                     threading.Thread(
                         target=lambda: send_to_telegram_with_prefix(
                             analyst_solver.suggest_documentation_structure(),
@@ -1057,7 +1057,7 @@ def run_daemon():
                         ),
                         daemon=True,
                     ).start()
-                elif key == Key.num_3:
+                elif key == Key.f3:
                     threading.Thread(
                         target=lambda: send_to_telegram_with_prefix(
                             analyst_solver.finalize_requirements_gathering(),

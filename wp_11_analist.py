@@ -800,7 +800,7 @@ def run_daemon():
             elif key == Key.f9:
                 toggle_typing_pause()
             elif key == Key.insert:
-                telegram_sender.process_clipboard()
+                telegram_sender.process_clipboard()  # type: ignore
             elif key == Key.num_lock:
                 if not num_lock_pressed:
                     num_lock_pressed = True
